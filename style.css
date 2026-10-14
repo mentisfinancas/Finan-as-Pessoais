@@ -208,8 +208,28 @@ nav {
     width:
         calc(100% - 245px);
 
+    height: 100vh;
+    min-height: 100vh;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-color: #aeb8c9 transparent;
+    scrollbar-width: thin;
+
     padding:
         30px 38px 50px;
+}
+
+.main::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.main::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: #aeb8c9;
+    background-clip: content-box;
 }
 
 
@@ -862,10 +882,100 @@ td:last-child {
     text-align: right;
 }
 
+.hidden {
+    display: none !important;
+}
+
+.launch-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin: -2px 0 16px;
+}
+
+.installment-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 13px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f8faff;
+}
+
+.installment-option input {
+    width: 18px;
+    min-width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    accent-color: var(--primary);
+}
+
+.installment-option span,
+.installment-option small {
+    display: block;
+}
+
+.installment-option small {
+    color: var(--muted);
+    font-weight: 400;
+    margin-top: 4px;
+}
+
+#installment-count-field input {
+    margin-top: 8px;
+}
+
+.installment-preview {
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 9px;
+    background: #f8faff;
+    font-size: 12px;
+}
+
+.installment-preview ul {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+    list-style: none;
+}
+
+.installment-preview li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+}
+
+.installment-preview li strong {
+    text-align: right;
+}
+
+.cashflow-actions {
+    white-space: nowrap;
+}
+
+.cashflow-actions .edit-transaction-button {
+    margin-right: 6px;
+}
+
+.projection-installments {
+    display: grid;
+    gap: 4px;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.35;
+}
+
 /* BARRA LATERAL RECOLHIDA, EXPANDE AO PASSAR O MOUSE OU RECEBER FOCO */
 .sidebar {
     width: 70px;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
     z-index: 200;
     transition: width 180ms ease, box-shadow 180ms ease;
 }
@@ -935,7 +1045,8 @@ body.signed-out .auth-screen {
 body.signed-out > .sidebar,
 body.signed-out > .main,
 body.signed-out > #modal,
-body.signed-out > #category-modal {
+body.signed-out > #category-modal,
+body.signed-out > #allocation-modal {
     display: none;
 }
 
@@ -1076,6 +1187,48 @@ body.signed-out > #category-modal {
     background: #f8fafc;
 }
 
+.period-filter {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.period-filter label {
+    display: grid;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.period-filter input {
+    min-height: 38px;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: white;
+    color: var(--text);
+    font: inherit;
+}
+
+.period-current-button {
+    min-height: 38px;
+    padding: 8px 10px;
+}
+
+.period-filter-error {
+    display: block;
+    min-height: 0;
+    margin: 0 0 10px;
+    color: var(--red);
+}
+
 .cashflow-panel-header {
     flex-wrap: wrap;
     gap: 12px;
@@ -1175,6 +1328,184 @@ body.signed-out > #category-modal {
     display: inline-block;
     margin-top: 3px;
     color: #475467;
+}
+
+.launch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.allocation-modal-box {
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+}
+
+.allocation-intro {
+    margin: -10px 0 16px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.allocation-mode-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+    margin-bottom: 18px;
+}
+
+.allocation-mode {
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: white;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.allocation-mode.active {
+    border-color: var(--primary);
+    background: #eef4ff;
+}
+
+.allocation-mode strong {
+    font-size: 12px;
+}
+
+.allocation-mode small {
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.allocation-fields {
+    display: grid;
+    gap: 12px;
+}
+
+.allocation-fields.hidden {
+    display: none;
+}
+
+.allocation-lines-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--text);
+    font-size: 12px;
+}
+
+.allocation-lines-heading .secondary-button,
+.allocation-add-value .secondary-button {
+    padding: 9px 11px;
+    font-size: 11px;
+}
+
+.allocation-lines {
+    display: grid;
+    gap: 8px;
+}
+
+.allocation-line {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr .8fr 34px;
+    align-items: center;
+    gap: 7px;
+}
+
+.remove-allocation-line {
+    width: 32px;
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: var(--red);
+    font-size: 19px;
+    cursor: pointer;
+}
+
+.allocation-summary {
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.allocation-summary.invalid {
+    color: var(--red);
+}
+
+.allocation-add-value {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 10px;
+}
+
+.allocation-values-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+}
+
+.allocation-value-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 8px 5px 10px;
+    border-radius: 16px;
+    background: #eef4ff;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.allocation-value-chip button {
+    width: 18px;
+    height: 18px;
+    border: 0;
+    border-radius: 50%;
+    background: white;
+    color: var(--red);
+    cursor: pointer;
+}
+
+.allocation-details {
+    max-width: 280px;
+    margin-top: 5px;
+    text-align: left;
+}
+
+.allocation-details summary {
+    color: var(--primary);
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.allocation-details ul {
+    display: grid;
+    gap: 4px;
+    margin: 6px 0 2px;
+    padding-left: 12px;
+    list-style: disc;
+}
+
+.allocation-details li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.allocation-details li strong {
+    color: var(--text);
+    white-space: nowrap;
 }
 
 
@@ -1325,6 +1656,30 @@ body.signed-out > #category-modal {
 
     box-shadow:
         0 25px 70px rgba(0, 0, 0, .18);
+}
+
+#modal .modal-box {
+    max-height: calc(100dvh - 40px);
+    overflow-x: auto;
+    overflow-y: auto;
+    scrollbar-color: #8794aa #e9edf4;
+    scrollbar-width: auto;
+}
+
+#modal .modal-box::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+#modal .modal-box::-webkit-scrollbar-track {
+    border-radius: 999px;
+    background: #e9edf4;
+}
+
+#modal .modal-box::-webkit-scrollbar-thumb {
+    border: 2px solid #e9edf4;
+    border-radius: 999px;
+    background: #8794aa;
 }
 
 
@@ -1554,6 +1909,28 @@ form textarea:focus {
 
 @media(max-width: 600px) {
 
+    .launch-actions {
+        width: 100%;
+    }
+
+    .launch-actions button {
+        flex: 1;
+        padding: 10px 8px;
+        font-size: 11px;
+    }
+
+    .allocation-line {
+        grid-template-columns: 1fr 1fr 34px;
+    }
+
+    .allocation-item-name {
+        grid-column: 1 / -1;
+    }
+
+    .allocation-add-value {
+        grid-template-columns: 1fr;
+    }
+
     .cashflow-panel-header {
         align-items: flex-start;
         flex-direction: column;
@@ -1597,4 +1974,224 @@ form textarea:focus {
             70px 1fr 80px 80px;
     }
 
+}
+
+/* Navegação e formulários confortáveis em telas Android pequenas */
+@media(max-width: 600px) {
+    body {
+        display: block;
+        padding-bottom: 82px;
+        overflow-y: auto;
+    }
+
+    .sidebar,
+    .sidebar:hover,
+    .sidebar:focus-within {
+        position: fixed;
+        inset: auto 0 0;
+        width: 100%;
+        height: 72px;
+        padding: 7px 6px max(7px, env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border);
+        border-right: 0;
+        box-shadow: 0 -6px 20px rgba(30, 42, 70, 0.10);
+        background: var(--white);
+        overflow: visible;
+    }
+
+    .sidebar .logo,
+    .sidebar .sidebar-footer,
+    .sidebar:hover .logo,
+    .sidebar:focus-within .logo {
+        display: none;
+    }
+
+    .sidebar nav {
+        height: 100%;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: center;
+        gap: 2px;
+    }
+
+    .sidebar .menu-item,
+    .sidebar:hover .menu-item,
+    .sidebar:focus-within .menu-item {
+        min-height: 52px;
+        padding: 5px 2px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        border-radius: 9px;
+        font-size: 18px;
+    }
+
+    .sidebar .menu-item span,
+    .sidebar:hover .menu-item span,
+    .sidebar:focus-within .menu-item span {
+        display: block;
+        overflow: hidden;
+        max-width: 100%;
+        font-size: 10px;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .main,
+    .sidebar:hover ~ .main,
+    .sidebar:focus-within ~ .main {
+        width: 100%;
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+        margin: 0;
+        padding: 18px 12px calc(96px + env(safe-area-inset-bottom));
+    }
+
+    .topbar {
+        align-items: flex-start;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+    }
+
+    .topbar h1 {
+        font-size: 24px;
+    }
+
+    .signed-in-label {
+        margin-left: auto;
+        font-size: 12px;
+    }
+
+    .sign-out-button {
+        min-height: 42px;
+        padding: 8px;
+    }
+
+    .panel {
+        padding: 15px 12px;
+        border-radius: 12px;
+    }
+
+    .panel-header {
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .launch-toolbar {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .period-filter {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .period-filter label,
+    .period-filter input {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .period-current-button {
+        grid-column: 1 / -1;
+    }
+
+    .launch-toolbar button,
+    button,
+    select,
+    input {
+        touch-action: manipulation;
+    }
+
+    .launch-toolbar button,
+    .primary-button,
+    .secondary-button,
+    .cashflow-action {
+        min-height: 44px;
+    }
+
+    .table-container {
+        margin: 0 -4px;
+        overflow-x: scroll;
+        scrollbar-width: auto;
+        scrollbar-color: #8794aa #e9edf4;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+    }
+
+    .table-container::-webkit-scrollbar {
+        height: 12px;
+    }
+
+    .table-container::-webkit-scrollbar-track {
+        border-radius: 999px;
+        background: #e9edf4;
+    }
+
+    .table-container::-webkit-scrollbar-thumb {
+        min-width: 44px;
+        border: 2px solid #e9edf4;
+        border-radius: 999px;
+        background: #8794aa;
+    }
+
+    table {
+        min-width: 680px;
+    }
+
+    .cashflow-summary .card {
+        padding: 15px;
+    }
+
+    .projection-header {
+        flex-direction: column;
+    }
+
+    .projection-period {
+        width: 100%;
+    }
+
+    .projection-period select {
+        width: 100%;
+        min-height: 44px;
+        margin-top: 6px;
+    }
+
+    .modal {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .modal-box {
+        width: 100%;
+        max-height: 92dvh;
+        overflow-y: auto;
+        padding: 22px 16px max(20px, env(safe-area-inset-bottom));
+        border-radius: 18px 18px 0 0;
+    }
+
+    #modal .modal-box {
+        overflow-x: auto;
+        overflow-y: auto;
+    }
+
+    .modal input,
+    .modal select,
+    .modal textarea {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    .auth-screen {
+        padding: 14px;
+    }
+
+    .auth-card {
+        padding: 24px 18px;
+    }
 }

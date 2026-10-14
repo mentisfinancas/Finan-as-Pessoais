@@ -104,12 +104,6 @@
 
             </div>
 
-            <button
-                class="primary-button"
-                id="new-launch">
-                + Novo lançamento
-            </button>
-
             <span class="signed-in-label">Olá, <strong id="signed-in-user"></strong></span>
             <button class="clear-button sign-out-button" id="sign-out" type="button">Sair</button>
 
@@ -344,15 +338,19 @@
 
                     </div>
 
-                    <button
-                        class="primary-button"
-                        id="new-launch-2">
-
-                        + Novo lançamento
-
-                    </button>
-
                 </div>
+
+                <div class="launch-toolbar">
+                    <button class="secondary-button" id="new-allocation" type="button">+ Fazer rateio</button>
+                    <button class="primary-button" id="new-launch-2" type="button">+ Novo lançamento</button>
+                </div>
+
+                <div class="period-filter" aria-label="Filtrar lançamentos por período">
+                    <label>De <input type="month" id="launch-period-start" aria-label="Mês inicial dos lançamentos"></label>
+                    <label>Até <input type="month" id="launch-period-end" aria-label="Mês final dos lançamentos"></label>
+                    <button class="clear-button period-current-button" id="launch-period-current" type="button">Este mês</button>
+                </div>
+                <small id="launch-period-error" class="period-filter-error" aria-live="polite"></small>
 
 
                 <div class="table-container">
@@ -428,12 +426,18 @@
                         <h2>Receitas e despesas</h2>
                         <span>As receitas são somadas primeiro; as despesas são abatidas em seguida</span>
                     </div>
-                    <div id="cashflow-filters" class="cashflow-filters" role="group" aria-label="Filtrar fluxo de caixa">
+                <div id="cashflow-filters" class="cashflow-filters" role="group" aria-label="Filtrar fluxo de caixa">
                         <button type="button" class="cashflow-filter active" data-cashflow-filter="all" aria-pressed="true">Todas</button>
                         <button type="button" class="cashflow-filter" data-cashflow-filter="income" aria-pressed="false">Receitas</button>
                         <button type="button" class="cashflow-filter" data-cashflow-filter="expense" aria-pressed="false">Despesas</button>
-                    </div>
                 </div>
+                </div>
+                <div class="period-filter" aria-label="Filtrar fluxo de caixa por período">
+                    <label>De <input type="month" id="cashflow-period-start" aria-label="Mês inicial do fluxo de caixa"></label>
+                    <label>Até <input type="month" id="cashflow-period-end" aria-label="Mês final do fluxo de caixa"></label>
+                    <button class="clear-button period-current-button" id="cashflow-period-current" type="button">Este mês</button>
+                </div>
+                <small id="cashflow-period-error" class="period-filter-error" aria-live="polite"></small>
                 <div class="table-container">
                     <table>
                         <thead>
@@ -444,7 +448,7 @@
                                 <th>Valor</th>
                                 <th>Situação</th>
                                 <th>Saldo previsto</th>
-                                <th>Ação</th>
+                                <th>Ações</th>
                             </tr>
                         </thead>
                         <tbody id="cashflow-table"></tbody>
@@ -461,9 +465,15 @@
                     <label class="projection-period">
                         Mostrar
                         <select id="projection-months" aria-label="Meses futuros para projetar">
+                            <option value="1">1 mês</option>
+                            <option value="2">2 meses</option>
                             <option value="3">3 meses</option>
                             <option value="6">6 meses</option>
                             <option value="12" selected>12 meses</option>
+                            <option value="24">24 meses</option>
+                            <option value="36">36 meses</option>
+                            <option value="48">48 meses</option>
+                            <option value="60">60 meses</option>
                         </select>
                     </label>
                 </div>
@@ -480,7 +490,7 @@
                         <tbody id="monthly-projection-table"></tbody>
                     </table>
                 </div>
-                <p class="projection-footnote">A projeção inclui lançamentos pendentes. Lançamentos fixos são repetidos mensalmente a partir do mês informado; as ocorrências futuras são previsões e não precisam ser confirmadas nesta tabela.</p>
+                <p class="projection-footnote">A projeção inclui lançamentos pendentes. Lançamentos fixos são repetidos mensalmente a partir do mês informado; as ocorrências futuras são previsões. As parcelas aparecem discriminadas por mês e podem ser pagas ou recebidas no fluxo de caixa.</p>
             </div>
         </section>
 
@@ -678,6 +688,19 @@
                 </div>
 
 
+                <label class="installment-option">
+                    <input type="checkbox" id="transaction-installments">
+                    <span>
+                        <strong>Parcelar este lançamento</strong>
+                    <small>A primeira parcela usa a data informada; as demais ficam nos meses subsequentes e podem ser editadas ou confirmadas individualmente.</small>
+                    </span>
+                </label>
+                <label id="installment-count-field" class="hidden">
+                    Quantidade de parcelas
+                    <input type="number" id="installment-count" min="2" max="60" value="2" inputmode="numeric">
+                    <div id="installment-preview" class="installment-preview muted" aria-live="polite"></div>
+                </label>
+
                 <label>
 
                     Observação
@@ -719,6 +742,78 @@
 
         </div>
 
+    </div>
+
+    <!-- MODAL DE RATEIO -->
+    <div id="allocation-modal" class="modal hidden">
+        <div class="modal-box allocation-modal-box">
+            <div class="modal-header">
+                <div>
+                    <p class="eyebrow">DESPESAS</p>
+                    <h2 id="allocation-modal-title">Fazer rateio</h2>
+                </div>
+                <button id="close-allocation-modal" class="close-button" type="button" aria-label="Fechar">×</button>
+            </div>
+
+            <p class="allocation-intro">Escolha se vai dividir um total entre categorias ou somar vários valores em um único lançamento.</p>
+
+            <div class="allocation-mode-selector" role="tablist" aria-label="Tipo de rateio">
+                <button id="allocation-mode-split" class="allocation-mode active" type="button" role="tab" aria-selected="true">
+                    <strong>Dividir um valor</strong>
+                    <small>Distribuir um total entre itens</small>
+                </button>
+                <button id="allocation-mode-aggregate" class="allocation-mode" type="button" role="tab" aria-selected="false">
+                    <strong>Somar gastos</strong>
+                    <small>Vários valores em um lançamento</small>
+                </button>
+            </div>
+
+            <form id="allocation-form">
+                <label>
+                    Descrição do lançamento único
+                    <input type="text" id="allocation-bundle-description" maxlength="80" placeholder="Ex.: Gastos da semana" required>
+                </label>
+
+                <div id="allocation-split-fields" class="allocation-fields">
+                    <label>
+                        Valor total para distribuir
+                        <input type="text" id="allocation-total" inputmode="decimal" placeholder="R$ 0,00">
+                    </label>
+                    <p id="allocation-split-summary" class="allocation-summary" aria-live="polite"></p>
+                </div>
+
+                <div id="allocation-aggregate-fields" class="allocation-fields hidden">
+                    <p id="allocation-aggregate-summary" class="allocation-summary" aria-live="polite">Total: R$ 0,00</p>
+                </div>
+
+                <div class="allocation-lines-heading">
+                    <strong id="allocation-lines-title">Distribuição por item/categoria</strong>
+                    <button id="allocation-add-line" class="secondary-button" type="button">+ Adicionar item</button>
+                </div>
+                <div id="allocation-lines" class="allocation-lines"></div>
+
+                <div class="form-grid allocation-common-fields">
+                    <label>
+                        Data
+                        <input type="date" id="allocation-date" required>
+                    </label>
+                    <label>
+                        Situação
+                        <select id="allocation-status">
+                            <option value="pending">Pendente</option>
+                            <option value="confirmed">Pago</option>
+                        </select>
+                    </label>
+                </div>
+
+                <label>
+                    Observação (opcional)
+                    <textarea id="allocation-note" rows="2" placeholder="Ex.: divisão das compras do mês"></textarea>
+                </label>
+
+                <button id="allocation-save-button" class="primary-button full-button" type="submit">Salvar rateio</button>
+            </form>
+        </div>
     </div>
 
 

@@ -156,8 +156,17 @@ function openModal(transaction = null) {
 
 
     $("transaction-form").reset();
+    $("transaction-installments").checked = false;
+    $("transaction-installments").disabled = false;
+    $("transaction-installments").closest("label").classList.remove("hidden");
+    $("installment-count-field").classList.add("hidden");
+    $("transaction-fixed").closest("label").classList.remove("hidden");
+    $("installment-preview").textContent = "";
 
-    $("transaction-modal-title").textContent = transaction
+    const installmentToEdit = transaction ? getInstallmentMetadata(transaction.note) : null;
+    $("transaction-modal-title").textContent = installmentToEdit
+        ? `Editar parcela ${installmentToEdit.index}/${installmentToEdit.count}`
+        : transaction
         ? "Editar lançamento"
         : "Novo lançamento";
 
@@ -181,9 +190,18 @@ function openModal(transaction = null) {
         $("value").value = transaction.value == null ? "" : money(Number(transaction.value));
         $("date").value = transaction.date ?? "";
         $("category").value = transaction.category ?? "";
-        $("note").value = transaction.note || "";
+        $("note").value = String(transaction.note || "")
+            .replace(ALLOCATION_META_PATTERN, "")
+            .replace(INSTALLMENT_META_PATTERN, "")
+            .trim();
+        if (getInstallmentMetadata(transaction.note)) {
+            $("transaction-installments").closest("label").classList.add("hidden");
+            $("transaction-fixed").checked = false;
+            $("transaction-fixed").closest("label").classList.add("hidden");
+        } else {
+            $("transaction-fixed").checked = Boolean(transaction.is_fixed);
+        }
         $("transaction-status").value = transaction.status || "confirmed";
-        $("transaction-fixed").checked = Boolean(transaction.is_fixed);
     }
 
 }
@@ -202,6 +220,14 @@ async function upsertCloudTransaction(transaction) {
     const { error } = await supabaseClient
         .from("transactions")
         .upsert(transactionRow(transaction));
+    if (error) throw error;
+}
+
+async function upsertCloudTransactions(items) {
+    if (!supabaseClient || !currentUser || !items.length) return;
+    const { error } = await supabaseClient
+        .from("transactions")
+        .upsert(items.map(transactionRow));
     if (error) throw error;
 }
 
@@ -431,6 +457,278 @@ async function authenticate(action) {
 function parseCurrencyInput(value) {
     const cents = String(value).replace(/\D/g, "");
     return cents ? Number(cents) / 100 : 0;
+}
+
+const ALLOCATION_META_PATTERN = /\[\[ALLOCATION_V1:([^\]]+)\]\]/;
+const INSTALLMENT_META_PATTERN = /\[\[INSTALLMENT_V1:([^\]]+)\]\]/;
+
+function getInstallmentMetadata(note = "") {
+    const match = String(note).match(INSTALLMENT_META_PATTERN);
+    if (!match) return null;
+    try {
+        const metadata = JSON.parse(decodeURIComponent(match[1]));
+        return metadata && metadata.groupId && Number(metadata.count) > 1 ? metadata : null;
+    } catch {
+        return null;
+    }
+}
+
+function composeInstallmentNote(note, metadata) {
+    const cleanNote = String(note || "").replace(INSTALLMENT_META_PATTERN, "").trim();
+    const marker = `[[INSTALLMENT_V1:${encodeURIComponent(JSON.stringify(metadata))}]]`;
+    return [cleanNote, marker].filter(Boolean).join("\n\n");
+}
+
+function installmentLabel(transaction) {
+    const metadata = getInstallmentMetadata(transaction.note);
+    if (!metadata) return "";
+    const [year, month] = transaction.date.split("-").map(Number);
+    const installmentMonth = new Date(year, month - 1, 1).toLocaleDateString("pt-BR", {
+        month: "short",
+        year: "numeric"
+    });
+    return `Parcela ${metadata.index}/${metadata.count} · ${installmentMonth}`;
+}
+
+function installmentDate(baseDate, offset) {
+    const [year, month, day] = baseDate.split("-").map(Number);
+    const targetMonthStart = new Date(Date.UTC(year, month - 1 + offset, 1));
+    const lastDay = new Date(Date.UTC(targetMonthStart.getUTCFullYear(), targetMonthStart.getUTCMonth() + 1, 0)).getUTCDate();
+    return `${targetMonthStart.getUTCFullYear()}-${String(targetMonthStart.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+function getAllocationMetadata(note = "") {
+    const match = String(note).match(ALLOCATION_META_PATTERN);
+    if (!match) return null;
+    try {
+        const metadata = JSON.parse(decodeURIComponent(match[1]));
+        return metadata && Array.isArray(metadata.items) ? metadata : null;
+    } catch {
+        return null;
+    }
+}
+
+function composeAllocationNote(note, metadata) {
+    let cleanNote = String(note || "").replace(ALLOCATION_META_PATTERN, "").trim();
+    cleanNote = cleanNote.replace(/\n{0,2}Detalhamento do rateio:\n[\s\S]*$/i, "").trim();
+    const detailRows = metadata.items.map(item =>
+        `• ${item.description}${item.category ? ` — ${item.category}` : ""}: ${money(Number(item.value))}`
+    );
+    const detailText = `Detalhamento do rateio:\n${detailRows.join("\n")}`;
+    const marker = `[[ALLOCATION_V1:${encodeURIComponent(JSON.stringify(metadata))}]]`;
+    return [cleanNote, detailText, marker].filter(Boolean).join("\n\n");
+}
+
+function transactionCategoryLabel(transaction) {
+    const metadata = getAllocationMetadata(transaction.note);
+    if (!metadata) return transaction.category;
+    const itemCategories = metadata.items.map(item => item.category).filter(Boolean);
+    const categoryCount = new Set(itemCategories).size;
+    if (categoryCount > 1) return `Rateio · ${categoryCount} categorias`;
+    return itemCategories[0] || transaction.category;
+}
+
+function transactionAllocationLabel(transaction) {
+    const metadata = getAllocationMetadata(transaction.note);
+    if (!metadata) return "";
+    return metadata.mode === "split"
+        ? `Rateio · ${metadata.items.length} ${metadata.items.length === 1 ? "item" : "itens"}`
+        : `Somado · ${metadata.items.length} ${metadata.items.length === 1 ? "item" : "itens"}`;
+}
+
+function renderAllocationDetailsHTML(transaction) {
+    const metadata = getAllocationMetadata(transaction.note);
+    if (!metadata) return "";
+    const items = metadata.items.map(item => `
+        <li>
+            <span>${escapeHTML(item.description)}${item.category ? ` · ${escapeHTML(item.category)}` : ""}</span>
+            <strong>${money(Number(item.value))}</strong>
+        </li>`).join("");
+    return `<details class="allocation-details"><summary>Ver detalhamento</summary><ul>${items}</ul></details>`;
+}
+
+let allocationMode = "split";
+let allocationEditingId = null;
+
+function getAllocationUserNote(note = "") {
+    return String(note || "")
+        .replace(ALLOCATION_META_PATTERN, "")
+        .replace(/\n{0,2}Detalhamento do rateio:\n[\s\S]*$/i, "")
+        .trim();
+}
+
+function allocationCategoryOptions(selected = "") {
+    if (!categories.expense.length) return '<option value="">Cadastre uma categoria de despesa</option>';
+    return categories.expense.map(name => `
+        <option value="${escapeHTML(name)}" ${name === selected ? "selected" : ""}>${escapeHTML(name)}</option>
+    `).join("");
+}
+
+function renderAllocationLines(items = [{}]) {
+    const lines = $("allocation-lines");
+    if (!lines) return;
+    lines.innerHTML = "";
+    (items.length ? items : [{}]).forEach(item => appendAllocationLine(item));
+    updateAllocationSummary();
+}
+
+function appendAllocationLine(item = {}) {
+    const line = document.createElement("div");
+    line.className = "allocation-line";
+    line.innerHTML = `
+        <input class="allocation-item-name" type="text" maxlength="80" placeholder="Item (ex.: mercado)" aria-label="Nome do item" value="${escapeHTML(item.description || "")}">
+        <select class="allocation-item-category" aria-label="Categoria do item">${allocationCategoryOptions(item.category || "")}</select>
+        <input class="allocation-line-value" type="text" inputmode="decimal" placeholder="R$ 0,00" aria-label="Valor distribuído" value="${item.value ? money(Number(item.value)) : ""}">
+        <button class="remove-allocation-line" type="button" aria-label="Remover item">×</button>`;
+    $("allocation-lines").append(line);
+}
+
+function updateAllocationSplitSummary() {
+    const target = $("allocation-split-summary");
+    if (!target) return;
+
+    const total = parseCurrencyInput($("allocation-total").value);
+    const allocated = [...document.querySelectorAll(".allocation-line-value")]
+        .reduce((sum, input) => sum + parseCurrencyInput(input.value), 0);
+    const difference = total - allocated;
+    target.classList.toggle("invalid", total <= 0 || Math.abs(difference) >= 0.01);
+    target.textContent = total > 0
+        ? `Distribuído: ${money(allocated)} de ${money(total)}${Math.abs(difference) < 0.01 ? " · Valor fechado" : ` · Falta distribuir ${money(Math.max(difference, 0))}`}`
+        : `Distribuído: ${money(allocated)} · Informe o valor total.`;
+}
+
+function updateAllocationSummary() {
+    if (allocationMode === "split") {
+        updateAllocationSplitSummary();
+        return;
+    }
+    const items = [...document.querySelectorAll(".allocation-line")];
+    const total = items.reduce((sum, line) => sum + parseCurrencyInput(line.querySelector(".allocation-line-value").value), 0);
+    $("allocation-aggregate-summary").textContent = `Total do lançamento único: ${money(total)}`;
+}
+
+function setAllocationMode(mode) {
+    allocationMode = mode;
+    const isSplit = mode === "split";
+    $("allocation-split-fields").classList.toggle("hidden", !isSplit);
+    $("allocation-aggregate-fields").classList.toggle("hidden", isSplit);
+    $("allocation-mode-split").classList.toggle("active", isSplit);
+    $("allocation-mode-aggregate").classList.toggle("active", !isSplit);
+    $("allocation-mode-split").setAttribute("aria-selected", String(isSplit));
+    $("allocation-mode-aggregate").setAttribute("aria-selected", String(!isSplit));
+    $("allocation-lines-title").textContent = isSplit ? "Distribuição por item/categoria" : "Gastos somados por item/categoria";
+    updateAllocationSummary();
+}
+
+function openAllocationModal(transaction = null) {
+    $("allocation-form").reset();
+    allocationEditingId = transaction?.id || null;
+    $("allocation-date").value = transaction?.date || today();
+    $("allocation-status").value = transaction?.status || "pending";
+    $("allocation-note").value = getAllocationUserNote(transaction?.note);
+    $("allocation-total").value = "";
+    const metadata = transaction ? getAllocationMetadata(transaction.note) : null;
+    const mode = metadata?.mode === "aggregate" ? "aggregate" : "split";
+    setAllocationMode(mode);
+    if (transaction && mode === "split") {
+        $("allocation-bundle-description").value = transaction.description || "";
+        $("allocation-total").value = money(Number(transaction.value) || 0);
+        renderAllocationLines(metadata?.items || []);
+    } else if (transaction) {
+        $("allocation-bundle-description").value = transaction.description || "";
+        renderAllocationLines(metadata?.items || []);
+    } else {
+        renderAllocationLines();
+    }
+    updateAllocationSummary();
+    $("allocation-modal-title").textContent = transaction ? "Editar rateio" : "Fazer rateio";
+    $("allocation-save-button").textContent = transaction ? "Atualizar rateio" : "Salvar rateio";
+    $("allocation-modal").classList.remove("hidden");
+}
+
+function closeAllocationModal() {
+    $("allocation-modal").classList.add("hidden");
+    allocationEditingId = null;
+}
+
+async function saveAllocation(event) {
+    event.preventDefault();
+    const date = $("allocation-date").value;
+    const status = $("allocation-status").value;
+    const note = $("allocation-note").value.trim();
+    let newTransactions = [];
+
+    if (allocationMode === "split") {
+        const description = $("allocation-bundle-description").value.trim();
+        const total = parseCurrencyInput($("allocation-total").value);
+        const lineItems = [...document.querySelectorAll(".allocation-line")].map(line => ({
+            description: line.querySelector(".allocation-item-name").value.trim(),
+            category: line.querySelector(".allocation-item-category").value,
+            value: parseCurrencyInput(line.querySelector(".allocation-line-value").value)
+        }));
+        const allocated = lineItems.reduce((sum, item) => sum + item.value, 0);
+
+        if (!description || total <= 0 || !lineItems.length || lineItems.some(item => !item.description || !item.category || item.value <= 0)) {
+            alert("Informe a descrição do lançamento, o total e nome, categoria e valor para cada item.");
+            return;
+        }
+        if (Math.abs(total - allocated) >= 0.01) {
+            alert(`A soma dos itens (${money(allocated)}) precisa ser igual ao valor total (${money(total)}).`);
+            return;
+        }
+
+        newTransactions = [{
+            id: allocationEditingId || crypto.randomUUID(),
+            description,
+            value: total,
+            date,
+            category: lineItems[0].category,
+            type: "expense",
+            status,
+            note: composeAllocationNote(note, { mode: "split", items: lineItems }),
+            is_fixed: false
+        }];
+    } else {
+        const description = $("allocation-bundle-description").value.trim();
+        const lineItems = [...document.querySelectorAll(".allocation-line")].map(line => ({
+            description: line.querySelector(".allocation-item-name").value.trim(),
+            category: line.querySelector(".allocation-item-category").value,
+            value: parseCurrencyInput(line.querySelector(".allocation-line-value").value)
+        }));
+        const total = lineItems.reduce((sum, item) => sum + item.value, 0);
+        if (!description || !lineItems.length || lineItems.some(item => !item.description || !item.category || item.value <= 0) || total <= 0) {
+            alert("Informe a descrição do lançamento e nome, categoria e valor para cada gasto.");
+            return;
+        }
+
+        newTransactions = [{
+            id: allocationEditingId || crypto.randomUUID(),
+            description,
+            value: total,
+            date,
+            category: lineItems[0].category,
+            type: "expense",
+            status,
+            note: composeAllocationNote(note, { mode: "aggregate", items: lineItems }),
+            is_fixed: false
+        }];
+    }
+
+    try {
+        await upsertCloudTransactions(newTransactions);
+    } catch (error) {
+        alert(`Não foi possível salvar o rateio no Supabase: ${error.message}`);
+        return;
+    }
+
+    if (allocationEditingId) {
+        transactions = transactions.map(transaction => transaction.id === allocationEditingId ? newTransactions[0] : transaction);
+    } else {
+        transactions.push(...newTransactions);
+    }
+    save();
+    closeAllocationModal();
+    renderAll();
 }
 
 
@@ -715,13 +1013,14 @@ function renderCategoryChart(data) {
 
 
     expenses.forEach(transaction => {
+        const metadata = getAllocationMetadata(transaction.note);
+        const categoryItems = metadata?.mode === "split"
+            ? metadata.items
+            : [{ category: transaction.category, value: transaction.value }];
 
-        grouped[transaction.category] =
-            (
-                grouped[transaction.category] ||
-                0
-            ) + transaction.value;
-
+        categoryItems.forEach(item => {
+            grouped[item.category] = (grouped[item.category] || 0) + Number(item.value);
+        });
     });
 
 
@@ -951,12 +1250,13 @@ function transactionHTML(transaction) {
 
 
             <span class="transaction-description">
-                ${transaction.description}
+                ${escapeHTML(transaction.description)}
+                ${transactionAllocationLabel(transaction) ? `<br><small>${escapeHTML(transactionAllocationLabel(transaction))}</small>` : ""}
             </span>
 
 
             <span class="muted">
-                ${transaction.category}
+                ${escapeHTML(transactionCategoryLabel(transaction))}
             </span>
 
 
@@ -1011,10 +1311,27 @@ function transactionHTML(transaction) {
 
 /* TABELA */
 
+function transactionsInPeriod(items, prefix) {
+    const start = $(`${prefix}-period-start`).value;
+    const end = $(`${prefix}-period-end`).value;
+    const error = $(`${prefix}-period-error`);
+
+    if (start && end && start > end) {
+        if (error) error.textContent = "O início do período deve ser anterior ao fim.";
+        return [];
+    }
+    if (error) error.textContent = "";
+
+    return items.filter(transaction => {
+        const month = String(transaction.date || "").slice(0, 7);
+        return (!start || month >= start) && (!end || month <= end);
+    });
+}
+
 function renderTable() {
 
     const list =
-        [...transactions]
+        transactionsInPeriod(transactions, "launch")
             .sort(
                 (a, b) =>
                     b.date.localeCompare(a.date)
@@ -1027,7 +1344,7 @@ function renderTable() {
             <tr>
                 <td colspan="6">
                     <div class="empty">
-                        Nenhum lançamento cadastrado.
+                        Nenhum lançamento encontrado neste período.
                     </div>
                 </td>
             </tr>
@@ -1064,10 +1381,11 @@ function renderTable() {
 
                         <strong>
                             ${
-                                transaction.description
+                                escapeHTML(transaction.description)
                             }
                         </strong>
-                        ${transaction.is_fixed ? '<br><small class="fixed-label">Fixo mensal</small>' : ""}
+                        ${installmentLabel(transaction) ? `<br><small class="fixed-label">${escapeHTML(installmentLabel(transaction))}</small>` : transactionAllocationLabel(transaction) ? `<br><small class="fixed-label">${escapeHTML(transactionAllocationLabel(transaction))}</small>` : transaction.is_fixed ? '<br><small class="fixed-label">Fixo mensal</small>' : ""}
+                        ${renderAllocationDetailsHTML(transaction)}
 
                     </td>
 
@@ -1075,7 +1393,7 @@ function renderTable() {
                     <td>
 
                         ${
-                            transaction.category
+                            escapeHTML(transactionCategoryLabel(transaction))
                         }
 
                     </td>
@@ -1330,7 +1648,7 @@ function renderAll() {
 }
 
 function renderCashflow() {
-    const ordered = [...transactions].sort((a, b) =>
+    const ordered = transactionsInPeriod(transactions, "cashflow").sort((a, b) =>
         (a.type === "income" ? 0 : 1) - (b.type === "income" ? 0 : 1) ||
         a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
     );
@@ -1351,7 +1669,7 @@ function renderCashflow() {
 
     if (!ordered.length) {
         $("cashflow-table").innerHTML = `
-            <tr><td colspan="7"><div class="empty">Nenhum lançamento cadastrado.</div></td></tr>`;
+            <tr><td colspan="7"><div class="empty">Nenhum lançamento encontrado neste período.</div></td></tr>`;
         renderMonthlyProjection();
         return;
     }
@@ -1372,12 +1690,12 @@ function renderCashflow() {
         return `
             <tr>
                 <td>${new Date(transaction.date + "T12:00:00").toLocaleDateString("pt-BR")}</td>
-                <td><strong>${escapeHTML(transaction.description)}</strong>${transaction.is_fixed ? '<br><small class="fixed-label">Fixo mensal</small>' : ""}</td>
-                <td>${escapeHTML(transaction.category)}</td>
+                <td><strong>${escapeHTML(transaction.description)}</strong>${installmentLabel(transaction) ? `<br><small class="fixed-label">${escapeHTML(installmentLabel(transaction))}</small>` : transactionAllocationLabel(transaction) ? `<br><small class="fixed-label">${escapeHTML(transactionAllocationLabel(transaction))}</small>${renderAllocationDetailsHTML(transaction)}` : transaction.is_fixed ? '<br><small class="fixed-label">Fixo mensal</small>' : ""}</td>
+                <td>${escapeHTML(transactionCategoryLabel(transaction))}</td>
                 <td class="${transaction.type}-text">${transaction.type === "income" ? "+" : "−"}${money(transaction.value)}</td>
                 <td><span class="status-badge ${isConfirmed ? "confirmed" : "pending"}">${statusLabel}</span></td>
                 <td class="${runningBalance < 0 ? "expense-text" : "income-text"}">${money(runningBalance)}</td>
-                <td><button class="cashflow-action" data-transaction-id="${transaction.id}">${actionLabel}</button></td>
+                <td class="cashflow-actions">${installmentLabel(transaction) ? `<button class="edit-transaction-button" type="button" data-edit-transaction="${transaction.id}">Editar parcela</button>` : ""}<button class="cashflow-action" data-transaction-id="${transaction.id}">${actionLabel}</button></td>
             </tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">Nenhum lançamento neste filtro.</div></td></tr>`;
     renderMonthlyProjection();
@@ -1421,6 +1739,8 @@ function renderMonthlyProjection() {
         const targetMonth = monthKeyFromOffset(currentMonthKey, offset);
         let income = 0;
         let expense = 0;
+        const installmentIncome = [];
+        const installmentExpense = [];
 
         transactions.forEach(transaction => {
             const transactionMonth = transaction.date.slice(0, 7);
@@ -1430,14 +1750,20 @@ function renderMonthlyProjection() {
 
             if (transaction.type === "income") income += Number(transaction.value);
             else expense += Number(transaction.value);
+
+            const installment = getInstallmentMetadata(transaction.note);
+            if (installment && isScheduledThisMonth) {
+                const detail = `<span>${escapeHTML(transaction.description)} · ${escapeHTML(installmentLabel(transaction))} · ${transaction.status === "pending" ? "Pendente" : transaction.type === "income" ? "Recebida" : "Paga"}: ${money(Number(transaction.value))}</span>`;
+                (transaction.type === "income" ? installmentIncome : installmentExpense).push(detail);
+            }
         });
 
         projectedBalance += income - expense;
         rows.push(`
             <tr>
                 <td class="projection-month-name">${monthLabel(targetMonth)}</td>
-                <td class="income-text">${money(income)}</td>
-                <td class="expense-text">${money(expense)}</td>
+                <td class="income-text">${money(income)}${installmentIncome.length ? `<div class="projection-installments">${installmentIncome.join("")}</div>` : ""}</td>
+                <td class="expense-text">${money(expense)}${installmentExpense.length ? `<div class="projection-installments">${installmentExpense.join("")}</div>` : ""}</td>
                 <td class="${projectedBalance < 0 ? "expense-text" : "income-text"}"><strong>${money(projectedBalance)}</strong></td>
             </tr>`);
     }
@@ -1516,6 +1842,37 @@ function switchSection(section) {
 
 /* EVENTOS */
 
+$("new-allocation").addEventListener("click", () => openAllocationModal());
+$("close-allocation-modal").addEventListener("click", closeAllocationModal);
+$("allocation-modal").addEventListener("click", event => {
+    if (event.target === $("allocation-modal")) closeAllocationModal();
+});
+$("allocation-mode-split").addEventListener("click", () => setAllocationMode("split"));
+$("allocation-mode-aggregate").addEventListener("click", () => setAllocationMode("aggregate"));
+$("allocation-add-line").addEventListener("click", appendAllocationLine);
+$("allocation-form").addEventListener("submit", saveAllocation);
+$("allocation-total").addEventListener("input", event => {
+    const digits = event.target.value.replace(/\D/g, "");
+    event.target.value = digits ? money(Number(digits) / 100) : "";
+    updateAllocationSummary();
+});
+$("allocation-lines").addEventListener("input", event => {
+    if (!event.target.matches(".allocation-line-value")) return;
+    const digits = event.target.value.replace(/\D/g, "");
+    event.target.value = digits ? money(Number(digits) / 100) : "";
+    updateAllocationSummary();
+});
+$("allocation-lines").addEventListener("click", event => {
+    const button = event.target.closest(".remove-allocation-line");
+    if (!button) return;
+    if ($("allocation-lines").children.length === 1) {
+        alert("Mantenha pelo menos um item no rateio.");
+        return;
+    }
+    button.closest(".allocation-line").remove();
+    updateAllocationSummary();
+});
+
 $("cashflow-filters").addEventListener("click", event => {
     const button = event.target.closest("[data-cashflow-filter]");
     if (!button) return;
@@ -1529,6 +1886,26 @@ $("cashflow-filters").addEventListener("click", event => {
     renderCashflow();
 });
 
+function resetPeriodToCurrent(prefix) {
+    const month = currentMonth();
+    $(`${prefix}-period-start`).value = month;
+    $(`${prefix}-period-end`).value = month;
+    if (prefix === "launch") renderTable();
+    else renderCashflow();
+}
+
+["launch", "cashflow"].forEach(prefix => {
+    $(`${prefix}-period-start`).addEventListener("change", () => {
+        if (prefix === "launch") renderTable();
+        else renderCashflow();
+    });
+    $(`${prefix}-period-end`).addEventListener("change", () => {
+        if (prefix === "launch") renderTable();
+        else renderCashflow();
+    });
+    $(`${prefix}-period-current`).addEventListener("click", () => resetPeriodToCurrent(prefix));
+});
+
 $("transactions-table").addEventListener("click", event => {
     const editButton = event.target.closest("button[data-edit-transaction]");
     if (!editButton) return;
@@ -1538,7 +1915,11 @@ $("transactions-table").addEventListener("click", event => {
         alert("Esse lançamento não foi encontrado. Atualize a página e tente novamente.");
         return;
     }
-    openModal(transaction);
+    if (getAllocationMetadata(transaction.note)) {
+        openAllocationModal(transaction);
+    } else {
+        openModal(transaction);
+    }
 });
 
 $("value").addEventListener("input", event => {
@@ -1547,6 +1928,15 @@ $("value").addEventListener("input", event => {
 });
 
 $("cashflow-table").addEventListener("click", async event => {
+    const editButton = event.target.closest("button[data-edit-transaction]");
+    if (editButton) {
+        const editTransaction = transactions.find(item => String(item.id) === editButton.dataset.editTransaction);
+        if (!editTransaction) return;
+        if (getAllocationMetadata(editTransaction.note)) openAllocationModal(editTransaction);
+        else openModal(editTransaction);
+        return;
+    }
+
     const button = event.target.closest("[data-transaction-id]");
     if (!button) return;
     const transaction = transactions.find(item => item.id === button.dataset.transactionId);
@@ -1621,18 +2011,49 @@ document
     });
 
 
-$("new-launch")
-    .addEventListener(
-        "click",
-        () => openModal()
-    );
-
-
 $("new-launch-2")
     .addEventListener(
         "click",
         () => openModal()
     );
+
+$("transaction-installments").addEventListener("change", event => {
+    const enabled = event.target.checked;
+    $("installment-count-field").classList.toggle("hidden", !enabled);
+    if (enabled) $("transaction-fixed").checked = false;
+    updateInstallmentPreview();
+});
+
+function updateInstallmentPreview() {
+    const count = Number($("installment-count").value);
+    const total = parseCurrencyInput($("value").value);
+    const baseDate = $("date").value;
+    const preview = $("installment-preview");
+    if (!total || !Number.isInteger(count) || count < 2 || count > 60 || !baseDate) {
+        preview.textContent = "Informe o valor total, a data e a quantidade de parcelas.";
+        return;
+    }
+
+    const totalCents = Math.round(total * 100);
+    const baseCents = Math.floor(totalCents / count);
+    const extraCents = totalCents % count;
+    const schedule = Array.from({ length: count }, (_, index) => {
+        const value = (baseCents + (index < extraCents ? 1 : 0)) / 100;
+        const date = new Date(`${installmentDate(baseDate, index)}T12:00:00`)
+            .toLocaleDateString("pt-BR");
+        return `<li><span>Parcela ${index + 1}/${count}</span><strong>${date} · ${money(value)}</strong></li>`;
+    }).join("");
+    preview.innerHTML = `<p>Primeira parcela no mês informado; as seguintes nos meses subsequentes:</p><ul>${schedule}</ul>`;
+}
+
+$("installment-count").addEventListener("input", updateInstallmentPreview);
+$("value").addEventListener("input", updateInstallmentPreview);
+$("date").addEventListener("change", updateInstallmentPreview);
+$("transaction-fixed").addEventListener("change", event => {
+    if (!event.target.checked) return;
+    $("transaction-installments").checked = false;
+    $("installment-count-field").classList.add("hidden");
+});
 
 
 $("close-modal")
@@ -1721,6 +2142,21 @@ $("transaction-form")
                 return;
             }
 
+            const previousTransaction = editingTransactionId
+                ? transactions.find(item => item.id === editingTransactionId)
+                : null;
+            const allocationMetadata = getAllocationMetadata(previousTransaction?.note);
+            const installmentMetadata = getInstallmentMetadata(previousTransaction?.note);
+            if (allocationMetadata && Math.abs(Number(previousTransaction.value) - numericValue) >= 0.01) {
+                alert("Este lançamento tem um rateio detalhado. Para manter a soma dos itens correta, exclua e refaça o rateio com o novo total.");
+                return;
+            }
+            const transactionNote = allocationMetadata
+                ? composeAllocationNote($("note").value, allocationMetadata)
+                : installmentMetadata
+                    ? composeInstallmentNote($("note").value, installmentMetadata)
+                : $("note").value.trim();
+
 
             const transaction = {
 
@@ -1742,7 +2178,7 @@ $("transaction-form")
                 type,
 
                 note:
-                    $("note").value.trim(),
+                    transactionNote,
 
                 status:
                     $("transaction-status").value,
@@ -1752,8 +2188,34 @@ $("transaction-form")
 
             };
 
+            let transactionsToSave = [transaction];
+            const shouldInstallment = !editingTransactionId && $("transaction-installments").checked;
+            if (shouldInstallment) {
+                const count = Number($("installment-count").value);
+                if (!Number.isInteger(count) || count < 2 || count > 60) {
+                    alert("Escolha uma quantidade de 2 a 60 parcelas.");
+                    return;
+                }
+                const groupId = crypto.randomUUID();
+                const totalCents = Math.round(numericValue * 100);
+                const baseCents = Math.floor(totalCents / count);
+                const extraCents = totalCents % count;
+                transactionsToSave = Array.from({ length: count }, (_, index) => {
+                    const metadata = { groupId, index: index + 1, count, total: numericValue };
+                    return {
+                        ...transaction,
+                        id: crypto.randomUUID(),
+                        value: (baseCents + (index < extraCents ? 1 : 0)) / 100,
+                        date: installmentDate(transaction.date, index),
+                        is_fixed: false,
+                        note: composeInstallmentNote(transaction.note, metadata)
+                    };
+                });
+            }
+
             try {
-                await upsertCloudTransaction(transaction);
+                if (shouldInstallment) await upsertCloudTransactions(transactionsToSave);
+                else await upsertCloudTransaction(transaction);
             } catch (error) {
                 alert(`Não foi possível salvar no Supabase: ${error.message}`);
                 return;
@@ -1765,7 +2227,7 @@ $("transaction-form")
                     item.id === editingTransactionId ? transaction : item
                 );
             } else {
-                transactions.push(transaction);
+                transactions.push(...transactionsToSave);
             }
 
 
@@ -1786,6 +2248,12 @@ $("date").value =
 
 
 updateCategoryOptions();
+
+const initialPeriod = currentMonth();
+["launch", "cashflow"].forEach(prefix => {
+    $(`${prefix}-period-start`).value = initialPeriod;
+    $(`${prefix}-period-end`).value = initialPeriod;
+});
 
 $("projection-months").addEventListener("change", renderMonthlyProjection);
 
