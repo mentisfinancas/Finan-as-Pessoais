@@ -45,8 +45,6 @@ let supabaseClient = null;
 let currentUser = null;
 let cloudLoadPromise = null;
 let selectedCashflowFilter = "all";
-
-
 const $ = id =>
     document.getElementById(id);
 
@@ -1330,12 +1328,7 @@ function transactionsInPeriod(items, prefix) {
 
 function renderTable() {
 
-    const list =
-        transactionsInPeriod(transactions, "launch")
-            .sort(
-                (a, b) =>
-                    b.date.localeCompare(a.date)
-            );
+    const list = transactionsInPeriod(transactions, "launch");
 
 
     if (!list.length) {
@@ -1648,10 +1641,18 @@ function renderAll() {
 }
 
 function renderCashflow() {
-    const ordered = transactionsInPeriod(transactions, "cashflow").sort((a, b) =>
+    const baseOrdered = transactionsInPeriod(transactions, "cashflow").sort((a, b) =>
+        a.date.localeCompare(b.date) ||
         (a.type === "income" ? 0 : 1) - (b.type === "income" ? 0 : 1) ||
-        a.date.localeCompare(b.date) || (a.id || "").localeCompare(b.id || "")
+        (a.id || "").localeCompare(b.id || "")
     );
+    const runningBalances = new Map();
+    let baseBalance = 0;
+    baseOrdered.forEach(transaction => {
+        baseBalance += transaction.type === "income" ? Number(transaction.value) : -Number(transaction.value);
+        runningBalances.set(String(transaction.id), baseBalance);
+    });
+    const ordered = baseOrdered;
 
     const confirmedBalance = ordered.reduce((balance, transaction) => {
         if (transaction.status === "pending") return balance;
@@ -1674,10 +1675,7 @@ function renderCashflow() {
         return;
     }
 
-    let runningBalance = 0;
     $("cashflow-table").innerHTML = ordered.map(transaction => {
-        const signedValue = transaction.type === "income" ? transaction.value : -transaction.value;
-        runningBalance += signedValue;
         if (selectedCashflowFilter !== "all" && transaction.type !== selectedCashflowFilter) return "";
         const isConfirmed = transaction.status !== "pending";
         const statusLabel = isConfirmed
@@ -1694,7 +1692,7 @@ function renderCashflow() {
                 <td>${escapeHTML(transactionCategoryLabel(transaction))}</td>
                 <td class="${transaction.type}-text">${transaction.type === "income" ? "+" : "−"}${money(transaction.value)}</td>
                 <td><span class="status-badge ${isConfirmed ? "confirmed" : "pending"}">${statusLabel}</span></td>
-                <td class="${runningBalance < 0 ? "expense-text" : "income-text"}">${money(runningBalance)}</td>
+                <td class="${runningBalances.get(String(transaction.id)) < 0 ? "expense-text" : "income-text"}">${money(runningBalances.get(String(transaction.id)))}</td>
                 <td class="cashflow-actions">${installmentLabel(transaction) ? `<button class="edit-transaction-button" type="button" data-edit-transaction="${transaction.id}">Editar parcela</button>` : ""}<button class="cashflow-action" data-transaction-id="${transaction.id}">${actionLabel}</button></td>
             </tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">Nenhum lançamento neste filtro.</div></td></tr>`;
@@ -1759,16 +1757,16 @@ function renderMonthlyProjection() {
         });
 
         projectedBalance += income - expense;
-        rows.push(`
-            <tr>
-                <td class="projection-month-name">${monthLabel(targetMonth)}</td>
-                <td class="income-text">${money(income)}${installmentIncome.length ? `<div class="projection-installments">${installmentIncome.join("")}</div>` : ""}</td>
-                <td class="expense-text">${money(expense)}${installmentExpense.length ? `<div class="projection-installments">${installmentExpense.join("")}</div>` : ""}</td>
-                <td class="${projectedBalance < 0 ? "expense-text" : "income-text"}"><strong>${money(projectedBalance)}</strong></td>
-            </tr>`);
+        rows.push({ month: targetMonth, income, expense, balance: projectedBalance, installmentIncome, installmentExpense });
     }
 
-    table.innerHTML = rows.join("");
+    table.innerHTML = rows.map(row => `
+        <tr>
+            <td class="projection-month-name">${monthLabel(row.month)}</td>
+            <td class="income-text">${money(row.income)}${row.installmentIncome.length ? `<div class="projection-installments">${row.installmentIncome.join("")}</div>` : ""}</td>
+            <td class="expense-text">${money(row.expense)}${row.installmentExpense.length ? `<div class="projection-installments">${row.installmentExpense.join("")}</div>` : ""}</td>
+            <td class="${row.balance < 0 ? "expense-text" : "income-text"}"><strong>${money(row.balance)}</strong></td>
+        </tr>`).join("");
 }
 
 
