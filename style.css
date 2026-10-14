@@ -2178,7 +2178,37 @@ form textarea:focus {
 
     #modal .modal-box {
         overflow-x: auto;
-        overflow-y: auto;
+        overflow-y: scroll;
+        overscroll-behavior-y: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-color: #8794aa #e9edf4;
+        scrollbar-width: thin;
+    }
+
+    #modal .modal-box::-webkit-scrollbar,
+    #allocation-modal .modal-box::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    #modal .modal-box::-webkit-scrollbar-track,
+    #allocation-modal .modal-box::-webkit-scrollbar-track {
+        border-radius: 999px;
+        background: #e9edf4;
+    }
+
+    #modal .modal-box::-webkit-scrollbar-thumb,
+    #allocation-modal .modal-box::-webkit-scrollbar-thumb {
+        border: 2px solid #e9edf4;
+        border-radius: 999px;
+        background: #8794aa;
+    }
+
+    #allocation-modal .allocation-modal-box {
+        overflow-y: scroll;
+        overscroll-behavior-y: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-color: #8794aa #e9edf4;
+        scrollbar-width: thin;
     }
 
     .modal input,
